@@ -1,7 +1,7 @@
 import express from 'express';
 import cors from 'cors';
 import dotenv from 'dotenv';
-import { createPool } from 'mysql2/promise';
+import { createPool, RowDataPacket } from 'mysql2/promise';
 
 dotenv.config();
 
@@ -19,6 +19,12 @@ const pool = createPool({
   connectionLimit: 10,
 });
 
+interface Manager extends RowDataPacket {
+  id: number;
+  name: string;
+  email: string;
+}
+
 app.get('/api/users', async (req, res) => {
   try {
     const [rows] = await pool.query('SELECT * FROM users');
@@ -29,14 +35,48 @@ app.get('/api/users', async (req, res) => {
   }
 });
 
+app.get('/api/managers', async (req, res) => {
+  try {
+    const [rows] = await pool.query<Manager[]>(
+      'SELECT * FROM users WHERE is_manager = TRUE'
+    );
+    const results = rows.map(({ first_name, last_name, id }) => ({
+      name: `${first_name} ${last_name}`,
+      id,
+    }));
+
+    res.json(results);
+  } catch (error) {
+    console.error('Error fetching managers:', error);
+    res.status(500).json({ message: 'Error fetching managers' });
+  }
+});
+
 // API endpoint to create a new user
 app.post('/api/users', async (req, res) => {
-  const { google_user_id, first_name, last_name, email, is_admin, is_active } =
-    req.body;
+  const {
+    google_user_id,
+    first_name,
+    last_name,
+    email,
+    is_admin,
+    is_active,
+    is_manager,
+    manager_id,
+  } = req.body;
   try {
     const [result] = await pool.query(
-      'INSERT INTO users (google_user_id, first_name, last_name, email, is_admin) VALUES (?, ?, ?, ?, ?)',
-      [google_user_id, first_name, last_name, email, is_admin, is_active]
+      'INSERT INTO users (google_user_id, first_name, last_name, email, is_admin, is_manager, manager_id) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [
+        google_user_id,
+        first_name,
+        last_name,
+        email,
+        is_admin,
+        is_active,
+        is_manager,
+        manager_id,
+      ]
     );
     res
       .status(201)
@@ -76,6 +116,38 @@ app.patch('/api/users/:userId/active', async (req, res) => {
   } catch (error) {
     console.error('Error updating user active status:', error);
     res.status(500).json({ message: 'Error updating user active status' });
+  }
+});
+
+// API endpoint modify user manager status
+app.patch('/api/users/:userId/management', async (req, res) => {
+  const { userId } = req.params;
+  const { is_manager } = req.body;
+  try {
+    await pool.query('UPDATE users SET is_manager = ? WHERE id = ?', [
+      is_manager,
+      userId,
+    ]);
+    res.json({ message: 'User management status updated successfully' });
+  } catch (error) {
+    console.error('Error updating user management status:', error);
+    res.status(500).json({ message: 'Error updating user management status' });
+  }
+});
+
+// API endpoint modify user manager's manager assignment
+app.patch('/api/users/:userId/assign-manager', async (req, res) => {
+  const { userId } = req.params;
+  const { manager_id } = req.body;
+  try {
+    await pool.query('UPDATE users SET manager_id = ? WHERE id = ?', [
+      manager_id,
+      userId,
+    ]);
+    res.json({ message: "User's manager updated successfully" });
+  } catch (error) {
+    console.error("Error updating user's manager:", error);
+    res.status(500).json({ message: "Error updating user's manager" });
   }
 });
 
